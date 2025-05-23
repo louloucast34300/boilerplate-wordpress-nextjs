@@ -1,23 +1,22 @@
 version: "3.8"
 
 services:
-  nextjs:
-    image: node:18-alpine
-    container_name: nextjs
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    command:
+      - --configFile=/etc/traefik/traefik.yml
     ports:
-      - "3000:3000"
-    command: sh -c "npm install && npm run dev"
-    depends_on:
-      - wordpress
+      - "80:80"
+      - "8080:8080" # Dashboard Traefik
+    volumes:
+      - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
   wordpress:
     image: wordpress:latest
     container_name: wordpress
-    ports:
-      - "8000:80"
     environment:
       WORDPRESS_DB_HOST: db:3306
       WORDPRESS_DB_NAME: wordpress
@@ -27,6 +26,26 @@ services:
       - ./backend:/var/www/html
     depends_on:
       - db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`local.wordpress-headless`)"
+      - "traefik.http.routers.wordpress.entrypoints=web"
+
+  nextjs:
+    image: node:18-alpine
+    container_name: nextjs
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- -H 0.0.0.0"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextjs.rule=Host(`local.nextjs-headless`)"
+      - "traefik.http.routers.nextjs.entrypoints=web"
+      - "traefik.http.services.nextjs.loadbalancer.server.port=3000" 
+    depends_on:
+      - wordpress
 
   db:
     image: mysql:8.0
